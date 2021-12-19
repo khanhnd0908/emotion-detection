@@ -1,5 +1,5 @@
 # photo_gallery_example
-
+Система распознавания эмоций пользователя.
 
 ## Install
 ```shell script
