@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart';
 import 'package:async/async.dart';
 import 'package:image_picker/image_picker.dart';
@@ -42,6 +43,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final ImagePicker _picker = ImagePicker();
 
   bool _detectError = false;
+  String url = "192.168.137.1:8000";
 
   void _onImageButtonPressed(ImageSource source,
       {BuildContext? context}) async {
@@ -49,6 +51,7 @@ class _MyHomePageState extends State<MyHomePage> {
       final pickedFile = await _picker.pickImage(source: source);
       setState(() {
         _imageFile = pickedFile;
+        _imageUrl = null;
         _detectError = false;
       });
     } catch (e) {
@@ -56,6 +59,17 @@ class _MyHomePageState extends State<MyHomePage> {
         _pickImageError = e;
       });
     }
+  }
+
+  Future<File?> _testCompressFile(String path) async {
+    final result = await FlutterImageCompress.compressAndGetFile(
+      path,
+      path.replaceFirst('.jpg', '_compress.jpg'),
+      minHeight: 600,
+      minWidth: 600
+    );
+    print(result!.path);
+    return result;
   }
 
   Widget _previewImages(BuildContext context) {
@@ -71,7 +85,7 @@ class _MyHomePageState extends State<MyHomePage> {
       return Semantics(
         label: 'image_picker_example_picked_image',
         child: Image.network(_imageUrl!,
-            width: (MediaQuery.of(context).size.width * 80) / 100),
+            width: (MediaQuery.of(context).size.width * 90) / 100),
       );
     }
     if (_imageFile != null) {
@@ -84,41 +98,57 @@ class _MyHomePageState extends State<MyHomePage> {
                   label: 'image_picker_example_picked_image',
                   child: kIsWeb
                       ? Image.network(_imageFile!.path,
-                          width: (MediaQuery.of(context).size.width * 80) / 100)
+                          width: (MediaQuery.of(context).size.width * 90) / 100)
                       : Image.file(File(_imageFile!.path),
                           width:
-                              (MediaQuery.of(context).size.width * 80) / 100),
+                              (MediaQuery.of(context).size.width * 90) / 100),
                 ),
                 Padding(
                     padding: EdgeInsets.all(20),
                     child: ElevatedButton(
                         child: Text('Получить результат'),
                         onPressed: () async {
-                          var imageFile = File(_imageFile!.path);
+                          var imageFile = await _testCompressFile(_imageFile!.path);
                           var stream = new http.ByteStream(
-                              DelegatingStream.typed(imageFile.openRead()));
+                              DelegatingStream.typed(imageFile!.openRead()));
                           var length = await imageFile.length();
+                          print(imageFile.path);
 
-                          var uri = Uri.parse("http://10.0.2.2:8000/uploads");
+                          var uri =
+                              Uri.parse("http://$url/uploads");
                           var request = new http.MultipartRequest("POST", uri);
 
                           var multipartFile = new http.MultipartFile(
                               'image', stream, length,
                               filename: basename(imageFile.path));
-
                           request.files.add(multipartFile);
 
                           var response = await request.send();
                           if (response.statusCode != 200)
                             setState(() => _detectError = true);
+                          else {
+                            response.stream
+                                .transform(utf8.decoder)
+                                .listen((value) async {
+                              var imageName = json.decode(value)["image_name"];
+                              var uri = Uri.parse(
+                                  "http://$url/emotions/$imageName");
+                              var request =
+                                  new http.MultipartRequest("GET", uri);
 
-                          response.stream
-                              .transform(utf8.decoder)
-                              .listen((value) async {
-                            var imageName = json.decode(value)["image_name"];
-                            setState(() => _imageUrl =
-                                "http://10.0.2.2:8000/images/detected/download/$imageName");
-                          });
+                              var response = await request.send();
+                              if (response.statusCode != 200)
+                                setState(() => _detectError = true);
+                              else {
+                                response.stream
+                                    .transform(utf8.decoder)
+                                    .listen((value) async {
+                                  setState(() => _imageUrl =
+                                      "http://$url/images/detected/download/$imageName");
+                                });
+                              }
+                            });
+                          }
                         }))
               ]),
           label: 'image_picker_example_picked_images');
